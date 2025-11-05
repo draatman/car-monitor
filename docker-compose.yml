@@ -7,15 +7,15 @@ services:
     restart: unless-stopped
     ports:
       - "8086:8086"
-    volumes:
-      - ./data/influxdb:/var/lib/influxdb2
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: "${INFLUX_PASS}"
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASS}
       DOCKER_INFLUXDB_INIT_ORG: car-monitor
       DOCKER_INFLUXDB_INIT_BUCKET: telemetry
-      DOCKER_INFLUXDB_INIT_TOKEN: "${INFLUX_TOKEN}"
+      DOCKER_INFLUXDB_INIT_TOKEN: ${INFLUX_TOKEN}
+    volumes:
+      - ./data/influxdb:/var/lib/influxdb2
 
   grafana:
     image: grafana/grafana:latest
@@ -25,17 +25,14 @@ services:
       - influxdb
     ports:
       - "3000:3000"
-    volumes:
-      - ./data/grafana:/var/lib/grafana
-      - ./dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json:ro
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASS}"
-      GF_DASHBOARDS_JSON_ENABLED: "true"
-      GF_DASHBOARDS_JSON_PATH: /etc/grafana/provisioning/dashboards
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASS}
+    volumes:
+      - ./data/grafana:/var/lib/grafana
 
   telegraf:
-    image: telegraf:1.33
+    image: telegraf:1.34
     container_name: telegraf
     restart: unless-stopped
     depends_on:
@@ -43,8 +40,5 @@ services:
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - /etc/localtime:/etc/localtime:ro
-    environment:
-      HOST_PROC: /proc
-      HOST_SYS: /sys
-      HOST_ETC: /etc
-      MIKROTIK_PASS: "${MIKROTIK_PASS}"
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
