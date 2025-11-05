@@ -11,6 +11,17 @@ Automatically installs Docker, configures everything, and **prompts for your cus
 
 ---
 
+Issue,Fix
+"""docker: command not found""",Script auto-installs it. If fails: sudo apt install docker.io
+"""Permission denied""",Add user to docker: sudo usermod -aG docker $USER → logout/login
+Containers exit immediately,docker compose logs → Check for password mismatch or port 8086 conflict
+No data in dashboard,"1. Wait 2 min. 2. Check telegraf logs. 3. Ensure InfluxDB data source in Grafana (URL: http://influxdb:8086, Token: your token)"
+CPU Temp empty,NUC needs lm-sensors: sudo apt install lm-sensors && sensors-detect
+LTE empty,MikroTik API not enabled (see Step 4) or wrong IP in telegraf.conf
+Script hangs on prompts,Run interactively (not piped)
+
+---
+
 ## Features
 
 | Feature | Description |
