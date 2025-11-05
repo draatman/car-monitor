@@ -1,0 +1,19 @@
+# Persistent data (never commit!)
+data/
+
+# Secrets
+.env
+*.env
+
+# Docker overrides
+docker-compose.override.yml
+
+# Logs & temp
+*.log
+*.tmp
+*.swp
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
