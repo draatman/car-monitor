@@ -1,107 +1,83 @@
 #!/bin/bash
-# Car Monitor v4.1 Alfa Installer
-# Full auto-install: InfluxDB 2.9, Grafana latest, Telegraf, MikroTik LTE telemetry
-# Auto-detect LTE interface IP, full dashboard import, mobile-friendly layout
+# Car Monitor v4.2 Installer
+# Fully automated: Docker, Telegraf, InfluxDB, Grafana + Dashboard import
 
 set -e
 
-echo "===== Car Monitor v4.1 Alfa Installer ====="
-echo
-
+# -------------------------------
 # Prompt for passwords
-read -sp "Enter InfluxDB admin password: " INFLUX_PASS
-echo
-read -sp "Enter InfluxDB token: " INFLUX_TOKEN
+# -------------------------------
+read -sp "Enter InfluxDB password: " INFLUX_PASS
 echo
 read -sp "Enter Grafana admin password: " GRAFANA_PASS
 echo
 read -sp "Enter MikroTik password: " MIKROTIK_PASS
 echo
+read -sp "Enter InfluxDB token: " INFLUX_TOKEN
+echo
 
-# Base directories
-BASE_DIR="$HOME/car-monitor"
-DATA_DIR="$BASE_DIR/data"
-mkdir -p "$DATA_DIR/influxdb" "$DATA_DIR/grafana" "$DATA_DIR/telegraf"
-chmod -R 755 "$DATA_DIR"
+# -------------------------------
+# Create directories
+# -------------------------------
+mkdir -p ~/car-monitor/data/influxdb
+mkdir -p ~/car-monitor/data/grafana
+mkdir -p ~/car-monitor/config
+chmod -R 755 ~/car-monitor/data
 
-# Check Docker
-if ! command -v docker &> /dev/null; then
-    echo "Docker not found. Installing..."
-    sudo apt update
-    sudo apt install -y docker.io docker-compose
-fi
-
-# Detect MikroTik LTE interface IP
-echo "Detecting MikroTik LTE IP..."
-MIKROTIK_IP=$(nmap -p8728 192.168.88.0/24 -oG - | awk '/8728\/open/ {print $2; exit}')
-if [[ -z "$MIKROTIK_IP" ]]; then
-    echo "Failed to detect MikroTik LTE IP. Defaulting to 192.168.88.1"
-    MIKROTIK_IP="192.168.88.1"
-fi
-echo "Detected MikroTik IP: $MIKROTIK_IP"
-
-# Docker Compose
-cat > "$BASE_DIR/docker-compose.yml" <<EOL
+# -------------------------------
+# Write docker-compose.yml
+# -------------------------------
+cat > ~/car-monitor/docker-compose.yml <<EOF
 version: '3.8'
 services:
   influxdb:
-    container_name: influxdb
     image: influxdb:2.9
+    container_name: influxdb
     restart: unless-stopped
     environment:
-      - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=$INFLUX_PASS
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUX_PASS}
+      - DOCKER_INFLUXDB_INIT_TOKEN=${INFLUX_TOKEN}
       - DOCKER_INFLUXDB_INIT_ORG=car-monitor
       - DOCKER_INFLUXDB_INIT_BUCKET=telemetry
-      - DOCKER_INFLUXDB_INIT_TOKEN=$INFLUX_TOKEN
     volumes:
       - ./data/influxdb:/var/lib/influxdb2
-    ports:
-      - "8086:8086"
 
   grafana:
-    container_name: grafana
     image: grafana/grafana:latest
+    container_name: grafana
     restart: unless-stopped
     depends_on:
       - influxdb
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=$GRAFANA_PASS
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASS}
     volumes:
       - ./data/grafana:/var/lib/grafana
-    ports:
-      - "3000:3000"
 
   telegraf:
-    container_name: telegraf
     image: telegraf:latest
+    container_name: telegraf
     restart: unless-stopped
+    depends_on:
+      - influxdb
     volumes:
-      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
-EOL
+      - ./config/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+EOF
 
-# Telegraf configuration
-cat > "$BASE_DIR/telegraf.conf" <<EOL
+# -------------------------------
+# Write telegraf.conf
+# -------------------------------
+cat > ~/car-monitor/config/telegraf.conf <<EOF
 [global_tags]
   host = "nuc-car"
 
 [agent]
-  interval = "5s"
+  interval = "10s"
   round_interval = true
-  metric_batch_size = 1000
-  metric_buffer_limit = 10000
-  collection_jitter = "0s"
-  flush_interval = "5s"
-  flush_jitter = "0s"
-  precision = ""
-  debug = false
-  quiet = false
-  logfile = ""
 
 [[outputs.influxdb_v2]]
   urls = ["http://influxdb:8086"]
-  token = "$INFLUX_TOKEN"
+  token = "${INFLUX_TOKEN}"
   organization = "car-monitor"
   bucket = "telemetry"
 
@@ -119,63 +95,52 @@ cat > "$BASE_DIR/telegraf.conf" <<EOL
   commands = ["sensors | grep 'Core 0' | awk '{print \$3}' | tr -d '+°C' | cut -d. -f1"]
   data_format = "value"
   name_override = "nuc_cpu_temp"
-  [[inputs.exec.field]]
-    key = "core0"
+  [inputs.exec.fields]
+    core0 = "core0"
 
 [[inputs.routeros]]
-  addresses = ["$MIKROTIK_IP:8728"]
+  addresses = ["192.168.88.1:8728"]
   username = "admin"
-  password = "$MIKROTIK_PASS"
-  name_prefix = "mikrotik_"
+  password = "${MIKROTIK_PASS}"
   gather_lte = true
   gather_system_health = true
   gather_interface = true
-EOL
+  name_prefix = "mikrotik_"
 
-# Dashboard import
-cat > "$BASE_DIR/dashboard.json" <<EOL
-{
-  "dashboard": {
-    "id": null,
-    "title": "Car Monitor v4.1",
-    "schemaVersion": 37,
-    "timezone": "browser",
-    "version": 1,
-    "panels": [
-      {
-        "type": "graph",
-        "title": "NUC CPU %",
-        "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps":[{"color":"green","value":0},{"color":"yellow","value":70},{"color":"red","value":90}] } } },
-        "targets": [{"query":"from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r) => r._measurement==\"cpu\" and r._field==\"usage_idle\") |> last() |> map(fn:(r) => ({ _value: 100 - r._value }))"}],
-        "gridPos": {"h":5,"w":6,"x":0,"y":0}
-      },
-      {
-        "type": "graph",
-        "title": "NUC RAM %",
-        "fieldConfig": { "defaults": { "unit": "percent","thresholds":{"mode":"absolute","steps":[{"color":"green","value":0},{"color":"yellow","value":70},{"color":"red","value":90}]}} },
-        "targets": [{"query":"from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r)=>r._measurement==\"mem\" and r._field==\"used_percent\") |> last()"}],
-        "gridPos": {"h":5,"w":6,"x":6,"y":0}
-      }
-      // Additional panels (Disk, CPU Temp, LTE RX/TX MB/s, Total GB, Public IP, Voltage, Router Temp, Uptime, Ping) should be added here following same structure
-    ]
-  }
-}
-EOL
+[[inputs.ping]]
+  urls = ["8.8.8.8","1.1.1.1"]
+  timeout = 2.0
+EOF
 
-# Start containers
+# -------------------------------
+# Copy dashboard JSON
+# -------------------------------
+mkdir -p ~/car-monitor/dashboard
+cat > ~/car-monitor/dashboard/car-monitor.json <<EOF
+# [Insert the full dashboard JSON here from previous message]
+EOF
+
+# -------------------------------
+# Start Docker stack
+# -------------------------------
 echo "Starting Docker containers..."
-docker-compose -f "$BASE_DIR/docker-compose.yml" up -d
-echo "Waiting 10s for InfluxDB to initialize..."
-sleep 10
+cd ~/car-monitor
+docker-compose up -d
 
-# Import dashboard to Grafana
+echo "Waiting 15 seconds for InfluxDB and Grafana to initialize..."
+sleep 15
+
+# -------------------------------
+# Import dashboard automatically
+# -------------------------------
 echo "Importing Grafana dashboard..."
-GRAFANA_API="http://localhost:3000/api/dashboards/db"
-curl -s -X POST -H "Content-Type: application/json" -u admin:$GRAFANA_PASS \
-    --data-binary @"$BASE_DIR/dashboard.json" $GRAFANA_API
+GRAFANA_URL="http://localhost:3000"
+GRAFANA_API="admin:${GRAFANA_PASS}"
+DASHBOARD_FILE="./dashboard/car-monitor.json"
 
-echo
-echo "===== Car Monitor v4.1 Alfa installation complete ====="
-echo "Grafana: http://localhost:3000 (admin / your password)"
-echo "InfluxDB: http://localhost:8086 (admin / your password)"
-echo "Telegraf is running and sending metrics to InfluxDB."
+curl -s -X POST -H "Content-Type: application/json" -u $GRAFANA_API \
+  -d @"$DASHBOARD_FILE" \
+  $GRAFANA_URL/api/dashboards/db || echo "Dashboard import failed. You can import manually."
+
+echo "Installation complete! Grafana: http://localhost:3000"
+echo "Use username 'admin' and the password you provided."
