@@ -3,11 +3,124 @@
     "id": null,
     "uid": "car-monitor-v5",
     "title": "Car Monitoring v5.0",
+    "tags": ["car","lte","mikrotik","nuc"],
     "timezone": "browser",
     "schemaVersion": 37,
     "version": 1,
-    "refresh": "15s",
-    "panels": []
+    "refresh": "5s",
+    "panels": [
+      {
+        "type": "gauge",
+        "title": "Voltage",
+        "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 11, "max": 14, "unit": "volt",
+            "thresholds": { "mode": "absolute", "steps": [
+              { "color": "red" },
+              { "color": "yellow", "value": 12 },
+              { "color": "green", "value": 13 }
+            ]}
+          }
+        },
+        "targets": [{
+          "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start: -5m) |> filter(fn:(r) => r._measurement==\"mikrotik_system_health\" and r._field==\"voltage\") |> last()"
+        }]
+      },
+      {
+        "type": "gauge",
+        "title": "Router Temp",
+        "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+        "fieldConfig": {
+          "defaults": {
+            "min": 20, "max": 100, "unit": "celsius",
+            "thresholds": { "mode": "absolute", "steps": [
+              { "color": "green" },
+              { "color": "yellow", "value": 60 },
+              { "color": "red", "value": 75 }
+            ]}
+          }
+        },
+        "targets": [{
+          "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start: -5m) |> filter(fn:(r) => r._measurement==\"mikrotik_system_health\" and r._field==\"temperature\") |> last()"
+        }]
+      },
+      {
+        "type": "stat",
+        "title": "Uptime",
+        "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
+        "targets": [{
+          "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start: -5m) |> filter(fn:(r)=>r._measurement==\"mikrotik_system_health\" and r._field==\"uptime\") |> last()"
+        }]
+      },
+
+      { "type": "graph", "title": "LTE RSRP", "gridPos": { "x": 0, "y": 5, "w": 6, "h": 5 },
+        "targets": [{ "refId": "A", "query": "from(bucket:\"telemetry\") |> range(start: -1h) |> filter(fn:(r)=>r._measurement==\"mikrotik_lte\" and r._field==\"rsrp\")" }] },
+      { "type": "graph", "title": "LTE RSRQ", "gridPos": { "x": 6, "y": 5, "w": 6, "h": 5 },
+        "targets": [{ "refId": "A", "query": "from(bucket:\"telemetry\") |> range(start: -1h) |> filter(fn:(r)=>r._measurement==\"mikrotik_lte\" and r._field==\"rsrq\")" }] },
+      { "type": "graph", "title": "LTE SINR", "gridPos": { "x": 12, "y": 5, "w": 6, "h": 5 },
+        "targets": [{ "refId": "A", "query": "from(bucket:\"telemetry\") |> range(start: -1h) |> filter(fn:(r)=>r._measurement==\"mikrotik_lte\" and r._field==\"sinr\")" }] },
+
+      { "type": "graph", "title": "LTE RX (MB/s)", "gridPos": { "x": 0, "y": 10, "w": 6, "h": 5 },
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-1h) |> filter(fn:(r)=>r._measurement==\"mikrotik_interface\" and r.interface==\"lte1\" and r._field==\"rx_bytes\") |> derivative(unit:1s,nonNegative:true) |> map(fn:(r)=>({r with _value:r._value/1048576}))"
+        }] },
+      { "type": "graph", "title": "LTE TX (MB/s)", "gridPos": { "x": 6, "y": 10, "w": 6, "h": 5 },
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-1h) |> filter(fn:(r)=>r._measurement==\"mikrotik_interface\" and r.interface==\"lte1\" and r._field==\"tx_bytes\") |> derivative(unit:1s,nonNegative:true) |> map(fn:(r)=>({r with _value:r._value/1048576}))"
+        }] },
+
+      { "type": "stat", "title": "Total RX (GB)", "gridPos": { "x": 0, "y": 15, "w": 6, "h": 5 },
+        "fieldConfig": { "defaults": { "unit": "decmbytes" } },
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:0) |> filter(fn:(r)=>r._measurement==\"mikrotik_interface\" and r.interface==\"lte1\" and r._field==\"rx_bytes\") |> last() |> map(fn:(r)=>({r with _value:r._value/1073741824}))"
+        }] },
+      { "type": "stat", "title": "Total TX (GB)", "gridPos": { "x": 6, "y": 15, "w": 6, "h": 5 },
+        "fieldConfig": { "defaults": { "unit": "decmbytes" } },
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:0) |> filter(fn:(r)=>r._measurement==\"mikrotik_interface\" and r.interface==\"lte1\" and r._field==\"tx_bytes\") |> last() |> map(fn:(r)=>({r with _value:r._value/1073741824}))"
+        }] },
+      { "type": "stat", "title": "Public IP", "gridPos": { "x": 12, "y": 15, "w": 6, "h": 5 },
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r)=>r._measurement==\"mikrotik_interface\" and r.interface==\"lte1\" and r._field==\"address\") |> last()"
+        }] },
+
+      { "type": "gauge", "title": "NUC CPU %", "gridPos": { "x": 0, "y": 20, "w": 6, "h": 5 },
+        "fieldConfig": { "defaults": { "min":0, "max":100, "unit":"percent",
+          "thresholds": { "steps": [ { "color":"green" }, { "color":"yellow","value":70 }, { "color":"red","value":90 } ] }
+        }},
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r)=>r._measurement==\"cpu\" and r.cpu==\"cpu-total\" and (r._field==\"usage_user\" or r._field==\"usage_system\")) |> sum() |> last()"
+        }] },
+      { "type": "gauge", "title": "NUC RAM %", "gridPos": { "x": 6, "y": 20, "w": 6, "h": 5 },
+        "fieldConfig": { "defaults": { "min":0, "max":100, "unit":"percent",
+          "thresholds": { "steps": [ { "color":"green" }, { "color":"yellow","value":70 }, { "color":"red","value":90 } ] }
+        }},
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r)=>r._measurement==\"mem\" and r._field==\"used_percent\") |> last()"
+        }] },
+      { "type": "gauge", "title": "NUC Disk %", "gridPos": { "x": 12, "y": 20, "w": 6, "h": 5 },
+        "fieldConfig": { "defaults": { "min":0, "max":100, "unit":"percent",
+          "thresholds": { "steps": [ { "color":"green" }, { "color":"yellow","value":80 }, { "color":"red","value":90 } ] }
+        }},
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r)=>r._measurement==\"disk\" and r._field==\"used_percent\") |> last() |> aggregateWindow(every:1m, fn:mean)"
+        }] },
+      { "type": "gauge", "title": "NUC CPU Temp", "gridPos": { "x": 0, "y": 25, "w": 6, "h": 5 },
+        "fieldConfig": { "defaults": { "unit":"celsius",
+          "thresholds": { "steps": [ { "color":"green" }, { "color":"yellow","value":65 }, { "color":"red","value":80 } ] }
+        }},
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r)=>r._measurement==\"nuc_cpu_temp\" and r._field==\"core0\") |> last()"
+        }] },
+      { "type": "stat", "title": "Ping (ms)", "gridPos": { "x": 6, "y": 25, "w": 6, "h": 5 },
+        "targets": [{ "refId": "A",
+          "query": "from(bucket:\"telemetry\") |> range(start:-5m) |> filter(fn:(r)=>r._measurement==\"ping\") |> last()"
+        }] }
+    ]
   },
   "overwrite": true
 }
