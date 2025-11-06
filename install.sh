@@ -28,7 +28,10 @@ PROJECT_DIR="$HOME/car-monitor"
 mkdir -p "$PROJECT_DIR/data/influxdb" "$PROJECT_DIR/data/grafana"
 cd "$PROJECT_DIR"
 
-# === 5. Write docker-compose.yml ===
+# === 5. Fix Grafana volume permissions (user 472) ===
+sudo chown -R 472:472 "$PROJECT_DIR/data/grafana"
+
+# === 6. Write docker-compose.yml ===
 cat > docker-compose.yml <<EOF
 services:
   influxdb:
@@ -65,7 +68,7 @@ services:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
 EOF
 
-# === 6. Write telegraf.conf (fixed for 1.34) ===
+# === 7. Write telegraf.conf (fixed for 1.34) ===
 cat > telegraf.conf <<'EOF'
 [global_tags]
   host = "nuc-car"
@@ -114,20 +117,19 @@ cat > telegraf.conf <<'EOF'
     oid = "1.3.6.1.4.1.14988.1.1.1.2.0"
 EOF
 
-# === 7. Start stack ===
+# === 8. Start stack ===
 echo "Starting containers..."
 docker compose up -d
 
-# === 8. Wait for InfluxDB ===
+# === 9. Wait for InfluxDB ===
 echo "Waiting for InfluxDB to be ready..."
 until curl -s http://localhost:8086/ping >/dev/null 2>&1; do
     sleep 2
 done
 
-# === 9. Final message ===
+# === 10. Final message ===
 IP=$(hostname -I | awk '{print $1}')
 echo "Installation complete!"
 echo "Grafana: http://$IP:3000 | admin / $GRAFANA_PASS"
 echo "InfluxDB Token: $INFLUX_TOKEN"
 echo "MikroTik SNMP: Enable on router → /ip service set snmp enabled=yes"
-EOF
