@@ -1,7 +1,7 @@
 version: "2.4"
 services:
   influxdb:
-    image: influxdb:2.9
+    image: influxdb:2.7
     container_name: influxdb
     restart: unless-stopped
     ports:
