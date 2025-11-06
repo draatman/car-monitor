@@ -1,52 +1,40 @@
 #!/bin/bash
-set -euo pipefail
+# car-monitor-install.sh — FULLY FIXED & AUTOMATED
+# Run: curl -fsSL https://raw.githubusercontent.com/your/repo/main/install.sh | bash
 
-echo "Car Monitor Alfa v5.0 Installer"
-echo "================================"
+set -e
 
-# === 1. Prompt for passwords (always) ===
-read -sp "Enter InfluxDB admin password: " INFLUX_PASS; echo
-read -sp "Enter Grafana admin password: " GRAFANA_PASS; echo
-read -sp "Enter MikroTik API password: " MIKROTIK_PASS; echo
-read -sp "Enter InfluxDB token (any strong string): " INFLUX_TOKEN; echo
+echo "=== CAR MONITOR FULL INSTALL (FIXED 401 & SETUP) ==="
 
-# === 2. Install Docker if missing ===
-if ! command -v docker >/dev/null 2>&1; then
-    echo "Installing Docker..."
-    curl -fsSL https://get.docker.com | sh
-    sudo usermod -aG docker "$USER"
-fi
+# === 1. PREPARE ===
+mkdir -p ~/car-monitor/data/{influxdb,grafana}
+cd ~/car-monitor
 
-# === 3. Install Docker Compose plugin if missing ===
-if ! docker compose version >/dev/null 2>&1; then
-    echo "Installing Docker Compose plugin..."
-    sudo apt-get update && sudo apt-get install -y docker-compose-plugin
-fi
-
-# === 4. Create project structure ===
-PROJECT_DIR="$HOME/car-monitor"
-mkdir -p "$PROJECT_DIR/data/influxdb" "$PROJECT_DIR/data/grafana"
-cd "$PROJECT_DIR"
-
-# === 5. Fix Grafana volume permissions (user 472) ===
-sudo chown -R 472:472 "$PROJECT_DIR/data/grafana"
-
-# === 6. Write docker-compose.yml ===
-cat > docker-compose.yml <<EOF
+# === 2. docker-compose.yml (FORCED SETUP) ===
+cat > docker-compose.yml << 'EOF'
 services:
   influxdb:
     image: influxdb:2.7
     container_name: influxdb
     restart: unless-stopped
     ports: ["8086:8086"]
-    volumes: [./data/influxdb:/var/lib/influxdb2]
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: $INFLUX_PASS
+      DOCKER_INFLUXDB_INIT_PASSWORD: 2TRwGse81115
       DOCKER_INFLUXDB_INIT_ORG: car
       DOCKER_INFLUXDB_INIT_BUCKET: telemetry
-      DOCKER_INFLUXDB_INIT_TOKEN: $INFLUX_TOKEN
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: xK9mP2vL8qW3rT5yU7zA0eC4fG6hJ1nB
+
+  telegraf:
+    image: telegraf:1.34
+    container_name: telegraf
+    restart: unless-stopped
+    depends_on: [influxdb]
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
 
   grafana:
     image: grafana/grafana:latest
@@ -56,31 +44,28 @@ services:
     ports: ["3000:3000"]
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: $GRAFANA_PASS
-    volumes: [./data/grafana:/var/lib/grafana]
-
-  telegraf:
-    image: telegraf:1.34
-    container_name: telegraf
-    restart: unless-stopped
-    depends_on: [influxdb]
+      GF_SECURITY_ADMIN_PASSWORD: 2TRwGse81115
     volumes:
-      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  influxdb_data:
+  grafana_data:
 EOF
 
-# === 7. Write telegraf.conf (fixed for 1.34) ===
-cat > telegraf.conf <<'EOF'
+# === 3. telegraf.conf (CLEAN & SAFE) ===
+cat > telegraf.conf << 'EOF'
 [global_tags]
   host = "nuc-car"
 
 [agent]
-  interval = "5s"
+  interval = "10s"
   round_interval = true
-  flush_interval = "5s"
+  flush_interval = "10s"
 
 [[outputs.influxdb_v2]]
   urls = ["http://influxdb:8086"]
-  token = "$INFLUX_TOKEN"
+  token = "xK9mP2vL8qW3rT5yU7zA0eC4fG6hJ1nB"
   organization = "car"
   bucket = "telemetry"
 
@@ -94,21 +79,22 @@ cat > telegraf.conf <<'EOF'
 [[inputs.disk]]
   ignore_fs = ["tmpfs","devtmpfs","overlay"]
 
-[[inputs.exec]]
-  commands = ["sensors | grep 'Core 0' | awk '{print $3}' | tr -d '+°C' | cut -d. -f1"]
-  data_format = "value"
-  name_override = "nuc_cpu_temp"
-  tagpass = { core0 = ["true"] }
-
 [[inputs.ping]]
   urls = ["1.1.1.1","8.8.8.8"]
   count = 1
   timeout = 2.0
 
+[[inputs.exec]]
+  commands = ["sensors 2>/dev/null | grep 'Core 0' | awk '{print $3}' | tr -d '+°C' | head -1 || echo 0"]
+  data_format = "value"
+  name_override = "nuc_cpu_temp"
+
 [[inputs.snmp]]
-  agents = ["192.168.88.1:161"]
+  agents = ["192.168.30.1:161"]
   version = 2
   community = "public"
+  timeout = "3s"
+  retries = 1
   [[inputs.snmp.field]]
     name = "voltage"
     oid = "1.3.6.1.4.1.14988.1.1.1.1.0"
@@ -117,19 +103,37 @@ cat > telegraf.conf <<'EOF'
     oid = "1.3.6.1.4.1.14988.1.1.1.2.0"
 EOF
 
-# === 8. Start stack ===
-echo "Starting containers..."
+# === 4. INSTALL DEPENDENCIES ===
+sudo apt update
+sudo apt install -y docker.io docker-compose lm-sensors curl jq
+
+# === 5. CLEAN ANY OLD VOLUMES ===
+docker compose down 2>/dev/null || true
+docker volume rm car-monitor_influxdb_data 2>/dev/null || true
+docker volume rm car-monitor_grafana_data 2>/dev/null || true
+
+# === 6. START INFLUXDB & WAIT FOR SETUP ===
+docker compose up -d influxdb
+echo "Waiting for InfluxDB setup..."
+sleep 50
+
+# === 7. VERIFY TOKEN & SETUP ===
+echo "=== INFLUXDB SETUP LOG ==="
+docker logs influxdb | grep "Generated admin token" || echo "ERROR: Setup failed!"
+
+# === 8. START FULL STACK ===
 docker compose up -d
 
-# === 9. Wait for InfluxDB ===
-echo "Waiting for InfluxDB to be ready..."
-until curl -s http://localhost:8086/ping >/dev/null 2>&1; do
-    sleep 2
-done
+# === 9. FINAL STATUS ===
+sleep 30
+echo "=== TELEGRAF LOGS (LOOK FOR 'Wrote batch') ==="
+docker compose logs telegraf | tail -20
 
-# === 10. Final message ===
-IP=$(hostname -I | awk '{print $1}')
-echo "Installation complete!"
-echo "Grafana: http://$IP:3000 | admin / $GRAFANA_PASS"
-echo "InfluxDB Token: $INFLUX_TOKEN"
-echo "MikroTik SNMP: Enable on router → /ip service set snmp enabled=yes"
+# === 10. DONE ===
+echo ""
+echo "DASHBOARD LIVE AT: http://$(hostname -I | awk '{print $1}'):3000"
+echo "LOGIN: admin / 2TRwGse81115"
+echo ""
+echo "MIKROTIK SNMP (run once):"
+echo "  /ip service set snmp enabled=yes"
+echo "  /snmp community set [find name=public] addresses=192.168.30.0/24"
